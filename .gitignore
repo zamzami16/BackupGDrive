@@ -1,0 +1,9 @@
+client_secrets.json
+client_secret_axata.json
+*.zip
+dist/
+packages/
+.vs/
+UploadGDrive/
+obj/
+bin/
