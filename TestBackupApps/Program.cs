@@ -1,7 +1,9 @@
 ﻿using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Windows.Forms;
 
-namespace Axata.BackupDrive
+namespace TestBackupApps
 {
     internal static class Program
     {
@@ -13,10 +15,7 @@ namespace Axata.BackupDrive
         {
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
-            //Application.Run(new CreateZipFile(isAuto:false));
-            BackupFiles frm = new BackupFiles();
-            frm.ManualBackup();
-            Application.Run(frm);
+            Application.Run(new Form1());
         }
     }
 }

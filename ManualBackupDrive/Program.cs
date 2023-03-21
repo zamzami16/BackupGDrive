@@ -14,8 +14,7 @@ namespace ManualBackupDrive
         {
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
-            BackupFiles frm = new BackupFiles();
-            frm.ManualBackup();
+            CreateZipFile frm = new CreateZipFile(isAuto: false);
             Application.Run(frm);
         }
     }

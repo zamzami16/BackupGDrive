@@ -86,6 +86,7 @@
             this.StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen;
             this.Text = "BackupFiles";
             this.WindowState = System.Windows.Forms.FormWindowState.Minimized;
+            this.FormClosing += new System.Windows.Forms.FormClosingEventHandler(this.BackupFiles_FormClosing);
             this.Load += new System.EventHandler(this.BackupFiles_Load);
             this.ResumeLayout(false);
 

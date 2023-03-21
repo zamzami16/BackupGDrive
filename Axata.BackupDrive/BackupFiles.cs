@@ -1,4 +1,5 @@
-﻿using Google.Apis.Auth.OAuth2;
+﻿using Axata.BackupDrive.Utils;
+using Google.Apis.Auth.OAuth2;
 using Google.Apis.Drive.v3;
 using Google.Apis.Services;
 using Google.Apis.Upload;
@@ -15,7 +16,6 @@ namespace Axata.BackupDrive
 {
     public partial class BackupFiles : Form
     {
-        private string fileId;
         private delegate void UpdateProgressDelegate(int progress);
         private CancellationTokenSource _cancellationTokenSource;
         private UserCredential credential;
@@ -25,8 +25,11 @@ namespace Axata.BackupDrive
         private string IdBaseFolder = null;
         private bool UploadComplete = false;
         private readonly string TokenFileName = "Google.Apis.Auth.OAuth2.Responses.TokenResponse-user";
-        private string FullTokenPath => Path.Combine(GetHomeDirectory(), TokenFileName);
+        private string FilePathToUploaded = null;
+        private string FileName = null;
+        private bool SudahDiupload = false;
         public bool IsAutoBackup { get; set; }
+        private IniFile iniFile;
 
         public bool Authed => _Authed;
         public BackupFiles()
@@ -41,6 +44,23 @@ namespace Axata.BackupDrive
             request.Q = $"mimeType='application/vnd.google-apps.folder' and name='{folderName}' and trashed=false";
             var result = request.Execute();
             foreach (var file in result.Files)
+            {
+                return file.Id;
+            }
+            return null;
+        }
+        private static string GetFileExist(DriveService service, string fileName, string folderName)
+        {
+            // This method will get the ID of a folder with the given name
+            var folderId = GetFolderId(service, folderName);
+            if (folderId == null)
+                return null;
+
+            var fileListRequest = service.Files.List();
+            fileListRequest.Q = "mimeType!='application/vnd.google-apps.folder' and trashed = false and name = '" + fileName + "' and parents in '" + folderId + "'";
+            fileListRequest.Fields = "files(id)";
+            var fileListResult = fileListRequest.Execute();
+            foreach (var file in fileListResult.Files)
             {
                 return file.Id;
             }
@@ -71,6 +91,8 @@ namespace Axata.BackupDrive
             else
             {
                 progressBar1.Value = progress;
+                if (UploadComplete)
+                    UploadHasComplete();
             }
         }
 
@@ -86,9 +108,6 @@ namespace Axata.BackupDrive
                         // Use the JSON string as needed
                         using (var streams = new MemoryStream(Encoding.UTF8.GetBytes(jsonString)))
                         {
-                            //string credPath = Environment.GetFolderPath(Environment.SpecialFolder.Personal);
-                            //credPath = Path.Combine(credPath, @".credentials\drive-dotnet-quickstart.json");
-
                             var cancel_token = new CancellationTokenSource();
                             // Add event listener to cancel token when user navigates away or closes the tab
                             this.FormClosing += new FormClosingEventHandler((sender, e) =>
@@ -152,39 +171,55 @@ namespace Axata.BackupDrive
                 Parents = new[] { IdBaseFolder }
             };
 
+            var existFileId = GetFileExist(service, filePath, BaseFolder);
             var uploadStream = new System.IO.FileStream(filePath, System.IO.FileMode.Open);
-            var request = service.Files.Create(fileMetadata, uploadStream, "application/octet-stream");
-            request.Fields = "id";
-            request.ChunkSize = ResumableUpload.MinimumChunkSize;
-            request.ProgressChanged += (IUploadProgress progress) =>
+            if (existFileId == null)
             {
-                switch (progress.Status)
+                var request = service.Files.Create(fileMetadata, uploadStream, "application/octet-stream");
+                request.Fields = "id";
+                request.ChunkSize = ResumableUpload.MinimumChunkSize;
+                request.ProgressChanged += (IUploadProgress progress) =>
                 {
-                    case UploadStatus.Starting:
-                        Console.WriteLine("Upload starting");
-                        LblStatus.Text = "Upload Files ...";
-                        btnStart.Enabled = false;
-                        break;
-                    case UploadStatus.Uploading:
-                        Console.WriteLine("{0} bytes sent", progress.BytesSent);
-                        UpdateProgress((int)(progress.BytesSent * 100 / uploadStream.Length));
-                        break;
-                    case UploadStatus.Completed:
-                        Console.WriteLine("Upload completed");
-                        LblStatus.Text = "Upload selesai ...";
-                        UpdateProgress(100);
-                        btnCancel.Enabled = false;
-                        UploadComplete = true;
-                        Application.Exit();
-                        break;
-                    case UploadStatus.Failed:
-                        Console.WriteLine("Upload failed");
-                        Application.Exit();
-                        break;
-                }
-            };
-            var response = request.UploadAsync(_cancellationTokenSource.Token);
-            if (response.IsCompleted) { Application.Exit(); }
+                    switch (progress.Status)
+                    {
+                        case UploadStatus.Starting:
+                            Console.WriteLine("Upload starting");
+                            LblStatus.Text = "Upload Files ...";
+                            btnStart.Enabled = false;
+                            break;
+                        case UploadStatus.Uploading:
+                            Console.WriteLine("{0} bytes sent", progress.BytesSent);
+                            UpdateProgress((int)(progress.BytesSent * 100 / uploadStream.Length));
+                            break;
+                        case UploadStatus.Completed:
+                            Console.WriteLine("Upload completed");
+                            LblStatus.Text = "Upload selesai ...";
+                            UpdateProgress(100);
+                            btnCancel.Enabled = false;
+                            UploadComplete = true;
+                            uploadStream.Dispose();
+                            break;
+                        case UploadStatus.Failed:
+                            Console.WriteLine("Upload failed");
+                            Application.Exit();
+                            break;
+                    }
+                };
+                request.UploadAsync(_cancellationTokenSource.Token);
+            }
+            else
+            { 
+                MessageBox.Show("File sudah ada di google drive.", "File Exist", MessageBoxButtons.OK, MessageBoxIcon.Information); 
+                btnStart.Enabled = SudahDiupload = true;
+                uploadStream.Dispose();
+            }
+        }
+
+        private void UploadHasComplete()
+        {
+            File.Delete(FilePathToUploaded);
+            MessageBox.Show("Database berhasil di upload ke Google Divre");
+            Application.Exit();
         }
 
         private string GetHomeDirectory()
@@ -210,10 +245,23 @@ namespace Axata.BackupDrive
 
         private void btnStart_Click(object sender, EventArgs e)
         {
-            LblStatus.Text = "Preparing file(s)";
-            // TODO: Prepare file for upload
-            var filePath = @"C:\Users\yusuf\Downloads\11_Axata.axt.gz";
-            BackupFile(filePath);
+            btnStart.Enabled = false;
+            LblStatus.Text = "Menyiapkan File ...";
+            FileName = iniFile.Read("FileName", "main");
+            if (!File.Exists(FileName))
+            {
+                if (MessageBox.Show("File tidak ditemukan.", "error", MessageBoxButtons.OK, MessageBoxIcon.Error) == DialogResult.OK)
+                    Application.Exit();
+            }
+
+            FileInfo fileInfo = new FileInfo(FileName);
+            FilePathToUploaded = Path.ChangeExtension(FileName, ".zip");
+            var thread = new Thread(() =>
+            {
+                Compression.Compress(fileInfo, FilePathToUploaded);
+                BackupFile(FilePathToUploaded);
+            });
+            thread.Start();
         }
 
         private void btnCancel_Click(object sender, EventArgs e)
@@ -226,16 +274,46 @@ namespace Axata.BackupDrive
         {
             if (IsAutoBackup) btnStart_Click(sender, e);
             else this.WindowState = FormWindowState.Normal;
+
+            if (!File.Exists("BackupInfo.ini"))
+            {
+                if (MessageBox.Show("'BackupInfo.ini' tidak ditemukan.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error) == DialogResult.OK)
+                {
+                    Application.Exit();
+                }
+            }
+            else
+            {
+                try
+                {
+                    iniFile = new IniFile("BackupInfo.ini");
+                    if (!iniFile.KeyExists("FileName", "main"))
+                        throw new InvalidOperationException();
+                }
+                catch (InvalidOperationException)
+                {
+                    if (MessageBox.Show("Terjadi kesalahan saat menyiapkan file,\nUlangi lagi.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error) == DialogResult.OK)
+                        Application.Exit();
+                }
+            }
         }
 
-        private void _GetAuth(int timewait=300)
+        private void UpdateIniFile()
+        {
+            IniFile iniFile = new IniFile("BackupInfo.ini");
+            iniFile.Write("LastBackup", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"), "main");
+            iniFile.DeleteKey("FileName", "main");
+        }
+
+        private void _GetAuth(int timewait = 300)
         {
             try
             {
                 Task task = Task.Run(() => { CreateCredentials(); });
                 TimeSpan ts = TimeSpan.FromSeconds(timewait);
                 if (!task.Wait(ts)) { _Authed = false; throw new Exception("Autentikasi gagal."); }
-            } catch (Exception) { throw; }
+            }
+            catch (Exception) { throw; }
         }
 
         public void GetAuth(int timewait = 300)
@@ -256,6 +334,20 @@ namespace Axata.BackupDrive
         {
             IsAutoBackup = false;
             this.Show();
+        }
+
+        private void BackupFiles_FormClosing(object sender, FormClosingEventArgs e)
+        {
+            if (UploadComplete)
+            {
+                UpdateIniFile();
+                File.Delete(FileName);
+                File.Delete(FilePathToUploaded);
+            }
+            if (SudahDiupload) {
+                File.Delete(FileName);
+                File.Delete(FilePathToUploaded);
+            }
         }
     }
 }
