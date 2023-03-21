@@ -7,3 +7,4 @@ packages/
 UploadGDrive/
 obj/
 bin/
+/Release
